@@ -25,14 +25,18 @@
  * define which filter to use.
  */
 
- #include "mav_course_customproject1.h"
+ #include "mav_customproject1.h"
  #include "firmwares/rotorcraft/guidance/guidance_h.h"
  #include "generated/airframe.h"
  #include "state.h"
  #include "modules/core/abi.h"
  #include <stdio.h>
  #include <time.h>
- 
+ // EVADER - START
+ // include addition ones
+ #include <math.h>
+ // EVADER - END
+
  #define ORANGE_AVOIDER_VERBOSE TRUE
  
  #define PRINT(string,...) fprintf(stderr, "[mav_course_customproject1->%s()] " string,__FUNCTION__ , ##__VA_ARGS__)
@@ -68,6 +72,19 @@
  
  const int16_t max_trajectory_confidence = 5;  // number of consecutive negative object detections to be sure we are obstacle free
  
+ // EVADER - INITIALIZE GLOBAL VARIABLES
+ // Evader properties
+ static float evader_x = 0.0f;
+ static float evader_y = 0.0f;
+ static float evader_speed = 0.2f; // Adjust as needed [m/s]
+ static float evader_heading = 0.0f;
+
+ // Arena Properties
+ static float arena_size = 4.0f; // Radius!! of circular arena in meters. Adjust as needed - eijjah says its 10x10x10
+
+
+ // EVADER - END
+
  // This call back will be used to receive the color count from the orange detector
  #ifndef ORANGE_AVOIDER_VISUAL_DETECTION_ID
  #error This module requires two color filters, as such you have to define ORANGE_AVOIDER_VISUAL_DETECTION_ID to the orange filter
@@ -95,12 +112,60 @@
    floor_count = quality;
    floor_centroid = pixel_y;
  }
- 
+ // EVADER - START
+void evader_init(void) {
+  // Seed the random number generator (if not already seeded)
+  static bool seeded = false;
+  if (!seeded) {
+    srand(time(NULL));
+    seeded = true;
+  }
+
+  // Generate a random angle and radius
+  float random_angle = (float)(rand() % 360) / 180.0 * M_PI; // Random angle in radians
+  float random_radius = (float)rand() / RAND_MAX * arena_size; // Random radius within arena
+
+  // Calculate x and y coordinates
+  evader_x = random_radius * cosf(random_angle);
+  evader_y = random_radius * sinf(random_angle);
+
+  // Initialize evader heading to a random direction
+  evader_heading = (float)(rand() % 360) / 180.0 * M_PI;
+}
+
+void update_evader_position(void) {
+  // Randomly change heading
+  float heading_change = (float)(rand() % 60 - 30) / 180.0 * M_PI; // +/- 30 degrees in radians
+  evader_heading += heading_change;
+
+  // Keep heading within 0 to 2*PI
+  while (evader_heading > 2 * M_PI) evader_heading -= 2 * M_PI;
+  while (evader_heading < 0) evader_heading += 2 * M_PI;
+
+  // Update position
+  evader_x += evader_speed * cosf(evader_heading) * PERIODIC_FREQUENCY;
+  evader_y += evader_speed * sinf(evader_heading) * PERIODIC_FREQUENCY;
+
+  // Keep evader within arena bounds
+  float distance_from_center = sqrtf(evader_x * evader_x + evader_y * evader_y);
+  if (distance_from_center > arena_size) {
+    // Project back onto the circle
+    evader_x = evader_x / distance_from_center * arena_size;
+    evader_y = evader_y / distance_from_center * arena_size;
+  }
+}
+
+ // EVADER - END
+
+
  /*
   * Initialisation function
   */
  void mav_customproject1_init(void)
  {
+   // EVADER - Initialise evader position
+   evader_init();
+
    // Initialise random values
    srand(time(NULL));
    chooseRandomIncrementAvoidance();
@@ -122,6 +187,9 @@
      return;
    }
  
+   update_evader_position(); // EVADER UPDATE POSITION
+   VERBOSE_PRINT("EVADER - x: %f  y: %f", evader_x, evader_y);
+
    // compute current color thresholds
    int32_t color_count_threshold = oag_color_count_frac * front_camera.output_size.w * front_camera.output_size.h;
    int32_t floor_count_threshold = oag_floor_count_frac * front_camera.output_size.w * front_camera.output_size.h;
