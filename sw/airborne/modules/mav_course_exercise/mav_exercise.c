@@ -103,12 +103,18 @@ void mav_exercise_periodic(void) {
       }
       break;
     case OBSTACLE_FOUND:
-      // TODO Change behavior
+      // TODO Change behavior- changed into 20 degrees turn and continue
       // stop as soon as obstacle is found
       waypoint_move_here_2d(WP_GOAL);
       waypoint_move_here_2d(WP_TRAJECTORY);
 
-      navigation_state = HOLD;
+
+      // adjust heading with 20 degrees and try to move forward
+      increase_nav_heading(oob_haeding_increment*4.f);
+      moveWaypointForward(WP_TRAJECTORY, 1.5f);
+
+      // declare save - might be wrong though
+      navigation_state = SAFE;
       break;
     case OUT_OF_BOUNDS:
       // stop
