@@ -78,7 +78,9 @@
  static float evader_y = 0.0f;
  static float evader_speed = 0.2f; // Adjust as needed [m/s]
  static float evader_heading = 0.0f;
+ static float distance_to_evader = 10.0f; // set initial distance as anything but zero
 
+ static float max_heading_rate = RadOfDeg(15.0f); // max heading rate for the pp controller - equal to some other found later in code
  // Arena Properties
  static float arena_size = 4.0f; // Radius!! of circular arena in meters. Adjust as needed - eijjah says its 10x10x10
 
@@ -155,21 +157,67 @@ void update_evader_position(void) {
   }
 }
 
+
+float purePursuit2d_compute_desired_heading(float evader_x, float evader_y, float pursuer_x, float pursuer_y) {
+  // 1. Calculate the vector from the aircraft to the evader
+  float delta_x = evader_x - pursuer_x;
+  float delta_y = evader_y - pursuer_y;
+
+  // 2. Calculate the distance to the evader (optional, might be useful later)
+  distance_to_evader = sqrtf(delta_x * delta_x + delta_y * delta_y);
+
+  // 3. Calculate the lookahead point. For now, we'll just use the evader's
+  // position.
+  float lookahead_x = evader_x;
+  float lookahead_y = evader_y;
+
+  // 4. Calculate the desired heading to the lookahead point
+  float desired_heading = atan2f(delta_y, delta_x);
+
+  // Make sure the heading is between 0 and 2*PI
+  while (desired_heading > 2 * M_PI)
+    desired_heading -= 2 * M_PI;
+  while (desired_heading < 0)
+    desired_heading += 2 * M_PI;
+
+  return desired_heading;
+}
+
+
+float purePursuit2d_controller(float error){
+  // aunomous proportional controller
+  //float max_cmd = 
+
+  float cmd = error;
+  return cmd;
+
+}
+
+float purePursuit2d_compute_heading_command(float heading_ref){
+
+  float heading_current = stateGetNedToBodyEulers_f()->psi;
+  float heading_error = heading_ref - heading_current;
+  float heading_rate_cmd = purePursuit2d_controller(heading_error);
+
+  Bound(heading_rate_cmd, -max_heading_rate, max_heading_rate);
+
+  return heading_rate_cmd;
+}
+
  // EVADER - END
 
 
  /*
   * Initialisation function
   */
- void mav_customproject1_init(void)
- {
-   // EVADER - Initialise evader position
-   evader_init();
+ void mav_customproject1_init(void) {
 
    // Initialise random values
    srand(time(NULL));
    chooseRandomIncrementAvoidance();
- 
+    
+   // EVADER - Initialise evader position
+   evader_init();   
    // bind our colorfilter callbacks to receive the color filter outputs
    AbiBindMsgVISUAL_DETECTION(ORANGE_AVOIDER_VISUAL_DETECTION_ID, &color_detection_ev, color_detection_cb);
    AbiBindMsgVISUAL_DETECTION(FLOOR_VISUAL_DETECTION_ID, &floor_detection_ev, floor_detection_cb);
@@ -188,13 +236,13 @@ void update_evader_position(void) {
    }
  
    update_evader_position(); // EVADER UPDATE POSITION
-   VERBOSE_PRINT("EVADER - x: %f  y: %f", evader_x, evader_y);
+   //VERBOSE_PRINT("EVADER - x: %f  y: %f", evader_x, evader_y);
 
    // compute current color thresholds
    int32_t color_count_threshold = oag_color_count_frac * front_camera.output_size.w * front_camera.output_size.h;
    int32_t floor_count_threshold = oag_floor_count_frac * front_camera.output_size.w * front_camera.output_size.h;
-   float floor_centroid_frac = floor_centroid / (float)front_camera.output_size.h / 2.f;
- 
+   float floor_centroid_frac = floor_centroid / (float )front_camera.output_size.h / 2.f;
+   
    VERBOSE_PRINT("Color_count: %d  threshold: %d state: %d \n", color_count, color_count_threshold, navigation_state);
    VERBOSE_PRINT("Floor count: %d, threshold: %d\n", floor_count, floor_count_threshold);
    VERBOSE_PRINT("Floor centroid: %f\n", floor_centroid_frac);
@@ -218,7 +266,23 @@ void update_evader_position(void) {
        } else if (obstacle_free_confidence == 0){
          navigation_state = OBSTACLE_FOUND;
        } else {
-         guidance_h_set_body_vel(speed_sp, 0);
+         // else clause - safe to pursue alternative objectives
+         guidance_h_set_body_vel(speed_sp, 0); // legacy code? 
+
+         // EVADER - START
+         // only in this clause do we compute PP commands, else the comp would be wasted
+         float drone_x = stateGetPositionNed_f()->x;
+         float drone_y = stateGetPositionNed_f()->y; // TODO not double call requried
+
+         float desired_heading_command = purePursuit2d_compute_desired_heading(evader_x, evader_y, drone_x, drone_y);
+
+         
+         float heading_rate_command = purePursuit2d_compute_heading_command(desired_heading_command);
+         guidance_h_set_heading_rate(heading_rate_command);
+ 
+         VERBOSE_PRINT("EVADER - x: %f  y: %f distance: %f\n", evader_x, evader_y, distance_to_evader);
+
+         // EVADER - STOP
        }
  
        break;
