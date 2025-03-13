@@ -46,6 +46,13 @@
  #define VERBOSE_PRINT(...)
  #endif
  
+ // EVADER - START
+ void evader_init(void);
+ void update_evader_position(void);
+ float purePursuit2d_compute_desired_heading(float evader_x, float evader_y, float pursuer_x, float pursuer_y);
+ float purePursuit2d_controller(float error);
+ float purePursuit2d_compute_heading_command(float heading_ref);
+ // EVADER - END
  uint8_t chooseRandomIncrementAvoidance(void);
  
  enum navigation_state_t {
@@ -81,6 +88,7 @@
  static float distance_to_evader = 10.0f; // set initial distance as anything but zero
 
  static float max_heading_rate = RadOfDeg(15.0f); // max heading rate for the pp controller - equal to some other found later in code
+ static float lookahead_distance = 1.0f; //
  // Arena Properties
  static float arena_size = 4.0f; // Radius!! of circular arena in meters. Adjust as needed - eijjah says its 10x10x10
 
@@ -166,13 +174,26 @@ float purePursuit2d_compute_desired_heading(float evader_x, float evader_y, floa
   // 2. Calculate the distance to the evader (optional, might be useful later)
   distance_to_evader = sqrtf(delta_x * delta_x + delta_y * delta_y);
 
-  // 3. Calculate the lookahead point. For now, we'll just use the evader's
-  // position.
-  float lookahead_x = evader_x;
-  float lookahead_y = evader_y;
+  // 3. Calculate the lookahead point
+  float lookahead_x, lookahead_y;
+
+  // If the evader is closer than the lookahead distance, just go straight to
+  // the evader
+  if (distance_to_evader <= lookahead_distance) {
+    lookahead_x = evader_x;
+    lookahead_y = evader_y;
+  } else {
+    // Calculate the normalized vector from pursuer to evader
+    float normalized_delta_x = delta_x / distance_to_evader;
+    float normalized_delta_y = delta_y / distance_to_evader;
+
+    // Calculate the lookahead point coordinates
+    lookahead_x = pursuer_x + normalized_delta_x * lookahead_distance;
+    lookahead_y = pursuer_y + normalized_delta_y * lookahead_distance;
+  }
 
   // 4. Calculate the desired heading to the lookahead point
-  float desired_heading = atan2f(delta_y, delta_x);
+  float desired_heading = atan2f(lookahead_y - pursuer_y, lookahead_x - pursuer_x);
 
   // Make sure the heading is between 0 and 2*PI
   while (desired_heading > 2 * M_PI)
